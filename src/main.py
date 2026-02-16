@@ -85,37 +85,41 @@ async def run() -> None:
     logger.info("Starting bridge clients")
     discord_task = asyncio.create_task(discord_client.start_client(), name="discord-client")
     telegram_task = asyncio.create_task(telegram_client.start_client(), name="telegram-client")
-    admin_server = uvicorn.Server(
-        uvicorn.Config(
-            create_admin_app(
-                AdminContext(
-                    bridge_service=bridge,
-                    bridge_pair_store=bridge_pair_store,
-                    admin_token=settings.admin_token,
-                )
-            ),
-            host=settings.admin_host,
-            port=settings.admin_port,
-            log_level="info",
+    stop_wait_task = asyncio.create_task(stop_event.wait(), name="stop-wait")
+
+    tasks = (discord_task, telegram_task)
+
+    try:
+        done, _ = await asyncio.wait(
+            (*tasks, stop_wait_task),
+            return_when=asyncio.FIRST_COMPLETED,
         )
-    )
-    admin_task = asyncio.create_task(admin_server.serve(), name="admin-server")
-    heartbeat_task = asyncio.create_task(
-        _heartbeat_task(settings.heartbeat_interval_seconds),
-        name="bridge-heartbeat",
-    )
 
-    await stop_event.wait()
+        if stop_wait_task not in done:
+            for task in done:
+                if task is stop_wait_task:
+                    continue
 
-    logger.info("Stopping bridge clients")
-    admin_server.should_exit = True
-    await discord_client.stop_client()
-    await telegram_client.stop_client()
+                if task.cancelled():
+                    raise RuntimeError(f"{task.get_name()} was cancelled during startup")
 
-    for task in (discord_task, telegram_task, heartbeat_task, admin_task):
-        task.cancel()
+                exc = task.exception()
+                if exc is not None:
+                    raise RuntimeError(f"{task.get_name()} failed during startup") from exc
+
+                raise RuntimeError(f"{task.get_name()} exited unexpectedly")
+    finally:
+        stop_wait_task.cancel()
         with contextlib.suppress(asyncio.CancelledError):
-            await task
+            await stop_wait_task
+
+        await discord_client.stop_client()
+        await telegram_client.stop_client()
+
+        for task in tasks:
+            task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await task
 
 
 if __name__ == "__main__":
