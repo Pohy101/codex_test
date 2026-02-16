@@ -45,8 +45,7 @@ DISCORD_CHANNEL_ID=123456789012345678
 TELEGRAM_CHAT_ID=-1001234567890
 
 # Опционально
-# BRIDGE_PAIRS=[{"discord_channel_id":123456789012345678,"telegram_chat_id":-1001234567890}]
-# BRIDGE_PAIRS=[{"discord_channel_id":123456789012345678,"telegram_chat_id":-1001234567890,"telegram_thread_id":42}]
+# BRIDGE_PAIRS=[{"discord_channel_id":123456789012345678,"telegram_chat_id":-1001234567890},{"discord_channel_id":223456789012345678,"telegram_chat_id":-1002234567890},{"discord_channel_id":323456789012345678,"telegram_chat_id":-1003234567890,"telegram_thread_id":42}]
 # BRIDGE_PAIRS_STORE_PATH=data/bridge_pairs.json
 # WHITELIST_USERS=["alice", "12345"]
 # BLACKLIST_USERS=[]
@@ -67,26 +66,38 @@ TELEGRAM_CHAT_ID=-1001234567890
 
 - Обычный канал/чат (без темы):
 
-  ```json
+  ```jsonc
   [
     {
-      "discord_channel_id": 123456789012345678,
-      "telegram_chat_id": -1001234567890
+      "discord_channel_id": 123456789012345678, // ID канала Discord (целое число, без кавычек)
+      "telegram_chat_id": -1001234567890 // ID чата/канала Telegram (обычно отрицательное число)
     }
   ]
   ```
 
-- Форум/тема в Telegram:
+- Форум/тема в Telegram (`telegram_thread_id`):
 
-  ```json
+  ```jsonc
   [
     {
-      "discord_channel_id": 123456789012345678,
-      "telegram_chat_id": -1001234567890,
-      "telegram_thread_id": 42
+      "discord_channel_id": 123456789012345678, // ID канала Discord
+      "telegram_chat_id": -1001234567890, // ID Telegram-чата, где есть тема
+      "telegram_thread_id": 42 // ID темы (topic/thread) внутри этого Telegram-чата
     }
   ]
   ```
+
+### Типичные ошибки JSON
+
+- Используются **одинарные кавычки** вместо двойных:
+  - неверно: `{'discord_channel_id': 123}`
+  - верно: `{"discord_channel_id": 123}`
+- Пропущена **запятая** между полями или объектами массива.
+- ID переданы как **строки**, а не как целые числа:
+  - неверно: `"discord_channel_id": "123456789012345678"`
+  - верно: `"discord_channel_id": 123456789012345678`
+- Лишняя запятая в конце объекта/массива:
+  - неверно: `[{"discord_channel_id": 123,}]`
 
 ## 4) Локальный запуск
 
