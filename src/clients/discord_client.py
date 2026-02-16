@@ -27,6 +27,12 @@ class DiscordClient(discord.Client):
         if message.author == self.user:
             return
 
+        channel_id = message.channel.id
+        thread_id = None
+        if isinstance(message.channel, discord.Thread):
+            thread_id = message.channel.id
+            channel_id = message.channel.parent_id or message.channel.id
+
         reply_to_author = None
         reply_to_text = None
         if message.reference and message.reference.resolved and isinstance(message.reference.resolved, discord.Message):
@@ -44,7 +50,8 @@ class DiscordClient(discord.Client):
             author_name=message.author.display_name,
             author_id=str(message.author.id),
             is_bot=message.author.bot,
-            channel_id=message.channel.id,
+            channel_id=channel_id,
+            thread_id=thread_id,
             message_id=str(message.id),
             attachments=attachments,
             reply_to_author=reply_to_author,

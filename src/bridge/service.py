@@ -29,6 +29,8 @@ class BridgeService:
             MessageRouter(
                 discord_channel_id=pair.discord_channel_id,
                 telegram_chat_id=pair.telegram_chat_id,
+                telegram_thread_id=pair.telegram_thread_id,
+                discord_thread_id=pair.discord_thread_id,
                 forwarding_rules=self.forwarding_rules,
                 discord_client=self.discord_client,
                 telegram_client=self.telegram_client,
@@ -54,6 +56,7 @@ class BridgeService:
         author_id: str | None,
         is_bot: bool,
         channel_id: int,
+        thread_id: int | None = None,
         message_id: str | None = None,
         attachments: list[MessageAttachment] | None = None,
         reply_to_author: str | None = None,
@@ -62,6 +65,7 @@ class BridgeService:
         incoming = IncomingMessage(
             platform="discord",
             chat_id=channel_id,
+            thread_id=thread_id,
             author_name=author_name,
             author_id=author_id,
             is_bot=is_bot,
@@ -72,7 +76,7 @@ class BridgeService:
             reply_to_text=reply_to_text,
         )
         correlation_id = generate_correlation_id(
-            f"discord:{channel_id}:{message_id}" if message_id else None
+            f"discord:{channel_id}:{thread_id}:{message_id}" if message_id else None
         )
         routers = await self._routers_snapshot()
         with correlation_context(correlation_id):
@@ -89,6 +93,7 @@ class BridgeService:
         author_id: str | None,
         is_bot: bool,
         chat_id: int,
+        thread_id: int | None = None,
         message_id: str | None = None,
         attachments: list[MessageAttachment] | None = None,
         reply_to_author: str | None = None,
@@ -97,6 +102,7 @@ class BridgeService:
         incoming = IncomingMessage(
             platform="telegram",
             chat_id=chat_id,
+            thread_id=thread_id,
             author_name=author_name,
             author_id=author_id,
             is_bot=is_bot,
@@ -107,7 +113,7 @@ class BridgeService:
             reply_to_text=reply_to_text,
         )
         correlation_id = generate_correlation_id(
-            f"telegram:{chat_id}:{message_id}" if message_id else None
+            f"telegram:{chat_id}:{thread_id}:{message_id}" if message_id else None
         )
         routers = await self._routers_snapshot()
         with correlation_context(correlation_id):
