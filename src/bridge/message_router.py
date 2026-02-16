@@ -25,8 +25,21 @@ logger = logging.getLogger(__name__)
 
 @dataclass(frozen=True)
 class MediaItem:
-    kind: Literal["photo", "video", "audio", "voice", "document", "sticker", "animation", "emoji", "other"]
+    kind: Literal[
+        "photo",
+        "video",
+        "audio",
+        "voice",
+        "document",
+        "sticker",
+        "animation",
+        "video_note",
+        "custom_emoji",
+        "reaction",
+        "other",
+    ]
     platform_file_id: str | None = None
+    platform_file_unique_id: str | None = None
     url: str | None = None
     mime_type: str | None = None
     filename: str | None = None
@@ -34,6 +47,12 @@ class MediaItem:
     caption: str | None = None
     file_size: int | None = None
     data: bytes | None = None
+    emoji: str | None = None
+    set_name: str | None = None
+    is_animated: bool | None = None
+    is_video: bool | None = None
+    custom_emoji_id: str | None = None
+    text_fallback: str | None = None
 
     def render(self) -> str:
         name = self.filename or self.kind
@@ -41,6 +60,8 @@ class MediaItem:
             return f"{name}: {self.url}"
         if self.platform_file_id:
             return f"{name} (id: {self.platform_file_id})"
+        if self.text_fallback:
+            return self.text_fallback
         return name
 
 
@@ -361,6 +382,7 @@ class MessageRouter:
         senders = {
             "photo": self.discord_client.send_photo,
             "video": self.discord_client.send_video,
+            "video_note": self.discord_client.send_video,
             "audio": self.discord_client.send_audio,
             "voice": self.discord_client.send_voice,
             "document": self.discord_client.send_document,
@@ -421,6 +443,7 @@ class MessageRouter:
         senders = {
             "photo": self.telegram_client.send_photo,
             "video": self.telegram_client.send_video,
+            "video_note": self.telegram_client.send_video_note,
             "audio": self.telegram_client.send_audio,
             "voice": self.telegram_client.send_voice,
             "document": self.telegram_client.send_document,
