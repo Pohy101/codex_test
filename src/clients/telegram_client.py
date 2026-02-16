@@ -74,6 +74,7 @@ class TelegramClient:
                 author_id=str(message.from_user.id),
                 is_bot=message.from_user.is_bot,
                 chat_id=message.chat.id,
+                thread_id=message.message_thread_id,
                 message_id=str(message.message_id),
                 attachments=attachments,
                 reply_to_author=reply_to_author,
@@ -86,7 +87,13 @@ class TelegramClient:
     async def stop_client(self) -> None:
         await self._bot.session.close()
 
-    async def send_message(self, chat_id: int, text: str) -> None:
+    async def send_message(
+        self,
+        chat_id: int,
+        text: str,
+        *,
+        message_thread_id: int | None = None,
+    ) -> None:
         def _is_retryable(exc: Exception) -> tuple[bool, int | None]:
             if isinstance(exc, TelegramRetryAfter):
                 return True, 429
@@ -98,6 +105,10 @@ class TelegramClient:
 
         await retry_with_backoff(
             "telegram.send_message",
-            lambda: self._bot.send_message(chat_id=chat_id, text=text),
+            lambda: self._bot.send_message(
+                chat_id=chat_id,
+                text=text,
+                message_thread_id=message_thread_id,
+            ),
             is_retryable=_is_retryable,
         )

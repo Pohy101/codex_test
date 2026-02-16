@@ -17,6 +17,8 @@ class ConfigError(ValueError):
 class BridgePair:
     discord_channel_id: int
     telegram_chat_id: int
+    telegram_thread_id: int | None = None
+    discord_thread_id: int | None = None
 
 
 @dataclass(frozen=True)
@@ -115,10 +117,30 @@ def _parse_bridge_pairs() -> tuple[BridgePair, ...]:
                 f"BRIDGE_PAIRS[{idx}] discord_channel_id and telegram_chat_id must be integers"
             ) from exc
 
+        telegram_thread_id = item.get("telegram_thread_id")
+        if telegram_thread_id is not None:
+            try:
+                telegram_thread_id = int(telegram_thread_id)
+            except (TypeError, ValueError) as exc:
+                raise ConfigError(
+                    f"BRIDGE_PAIRS[{idx}] telegram_thread_id must be an integer or null"
+                ) from exc
+
+        discord_thread_id = item.get("discord_thread_id")
+        if discord_thread_id is not None:
+            try:
+                discord_thread_id = int(discord_thread_id)
+            except (TypeError, ValueError) as exc:
+                raise ConfigError(
+                    f"BRIDGE_PAIRS[{idx}] discord_thread_id must be an integer or null"
+                ) from exc
+
         pairs.append(
             BridgePair(
                 discord_channel_id=discord_channel_id,
                 telegram_chat_id=telegram_chat_id,
+                telegram_thread_id=telegram_thread_id,
+                discord_thread_id=discord_thread_id,
             )
         )
 

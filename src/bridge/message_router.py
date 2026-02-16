@@ -33,6 +33,7 @@ class MessageAttachment:
 class IncomingMessage:
     platform: str
     chat_id: int
+    thread_id: int | None = None
     author_name: str
     author_id: str | None = None
     is_bot: bool = False
@@ -44,7 +45,10 @@ class IncomingMessage:
 
     def marker_key(self) -> str:
         msg_id = self.message_id or ""
-        return f"{self.platform}:{self.chat_id}:{msg_id}" if msg_id else ""
+        if not msg_id:
+            return ""
+        thread_part = "" if self.thread_id is None else str(self.thread_id)
+        return f"{self.platform}:{self.chat_id}:{thread_part}:{msg_id}"
 
 
 class MessageRouter:
@@ -53,6 +57,8 @@ class MessageRouter:
         *,
         discord_channel_id: int,
         telegram_chat_id: int,
+        telegram_thread_id: int | None = None,
+        discord_thread_id: int | None = None,
         forwarding_rules: ForwardingRules,
         discord_client: object | None = None,
         telegram_client: object | None = None,
@@ -60,6 +66,8 @@ class MessageRouter:
     ) -> None:
         self.discord_channel_id = discord_channel_id
         self.telegram_chat_id = telegram_chat_id
+        self.telegram_thread_id = telegram_thread_id
+        self.discord_thread_id = discord_thread_id
         self.forwarding_rules = forwarding_rules
         self.discord_client = discord_client
         self.telegram_client = telegram_client
@@ -67,6 +75,8 @@ class MessageRouter:
 
     async def route_discord_to_telegram(self, message: IncomingMessage) -> None:
         if message.chat_id != self.discord_channel_id:
+            return
+        if self.discord_thread_id is not None and message.thread_id != self.discord_thread_id:
             return
         if await self._is_mirrored(message):
             logger.debug("Reject Discord forward: mirrored message", extra={"message_id": message.message_id})
@@ -95,10 +105,16 @@ class MessageRouter:
             logger.debug("Reject Discord forward: empty payload", extra={"message_id": message.message_id})
             return
 
-        await self._send_to_telegram(self.telegram_chat_id, payload)
+        await self._send_to_telegram(
+            self.telegram_chat_id,
+            payload,
+            message_thread_id=self.telegram_thread_id,
+        )
 
     async def route_telegram_to_discord(self, message: IncomingMessage) -> None:
         if message.chat_id != self.telegram_chat_id:
+            return
+        if self.telegram_thread_id is not None and message.thread_id != self.telegram_thread_id:
             return
         if await self._is_mirrored(message):
             logger.debug("Reject Telegram forward: mirrored message", extra={"message_id": message.message_id})
@@ -172,7 +188,17 @@ class MessageRouter:
             raise RuntimeError("Discord client is not configured")
         await self.discord_client.send_message(channel_id, text)
 
-    async def _send_to_telegram(self, chat_id: int, text: str) -> None:
+    async def _send_to_telegram(
+        self,
+        chat_id: int,
+        text: str,
+        *,
+        message_thread_id: int | None = None,
+    ) -> None:
         if self.telegram_client is None:
             raise RuntimeError("Telegram client is not configured")
-        await self.telegram_client.send_message(chat_id, text)
+        await self.telegram_client.send_message(
+            chat_id,
+            text,
+            message_thread_id=message_thread_id,
+        )

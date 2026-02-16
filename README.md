@@ -46,6 +46,7 @@ TELEGRAM_CHAT_ID=-1001234567890
 
 # Опционально
 # BRIDGE_PAIRS=[{"discord_channel_id":123456789012345678,"telegram_chat_id":-1001234567890}]
+# BRIDGE_PAIRS=[{"discord_channel_id":123456789012345678,"telegram_chat_id":-1001234567890,"telegram_thread_id":42}]
 # BRIDGE_PAIRS_STORE_PATH=data/bridge_pairs.json
 # WHITELIST_USERS=["alice", "12345"]
 # BLACKLIST_USERS=[]
@@ -61,6 +62,31 @@ TELEGRAM_CHAT_ID=-1001234567890
 
 > Можно использовать либо пару `DISCORD_CHANNEL_ID` + `TELEGRAM_CHAT_ID`, либо массив `BRIDGE_PAIRS` (JSON).
 > При первом запуске пары из env инициализируют JSON-хранилище `BRIDGE_PAIRS_STORE_PATH`.
+
+Примеры `BRIDGE_PAIRS`:
+
+- Обычный канал/чат (без темы):
+
+  ```json
+  [
+    {
+      "discord_channel_id": 123456789012345678,
+      "telegram_chat_id": -1001234567890
+    }
+  ]
+  ```
+
+- Форум/тема в Telegram:
+
+  ```json
+  [
+    {
+      "discord_channel_id": 123456789012345678,
+      "telegram_chat_id": -1001234567890,
+      "telegram_thread_id": 42
+    }
+  ]
+  ```
 
 ## 4) Локальный запуск
 
