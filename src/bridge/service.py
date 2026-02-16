@@ -2,15 +2,18 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
+from src.bridge.dedup_store import BaseDedupStore
 from src.bridge.message_router import IncomingMessage, MessageAttachment, MessageRouter
 from src.bridge.rules import ForwardingRules
 from src.config import BridgePair
+from src.logging_setup import correlation_context, generate_correlation_id
 
 
 @dataclass
 class BridgeService:
     bridge_pairs: tuple[BridgePair, ...]
     forwarding_rules: ForwardingRules
+    dedup_store: BaseDedupStore
     discord_client: object | None = None
     telegram_client: object | None = None
     routers: list[MessageRouter] = field(init=False)
@@ -23,6 +26,7 @@ class BridgeService:
                 forwarding_rules=self.forwarding_rules,
                 discord_client=self.discord_client,
                 telegram_client=self.telegram_client,
+                dedup_store=self.dedup_store,
             )
             for pair in self.bridge_pairs
         ]
@@ -52,10 +56,14 @@ class BridgeService:
             reply_to_author=reply_to_author,
             reply_to_text=reply_to_text,
         )
-        for router in self.routers:
-            router.discord_client = self.discord_client
-            router.telegram_client = self.telegram_client
-            await router.route_discord_to_telegram(incoming)
+        correlation_id = generate_correlation_id(
+            f"discord:{channel_id}:{message_id}" if message_id else None
+        )
+        with correlation_context(correlation_id):
+            for router in self.routers:
+                router.discord_client = self.discord_client
+                router.telegram_client = self.telegram_client
+                await router.route_discord_to_telegram(incoming)
 
     async def handle_telegram_message(
         self,
@@ -82,7 +90,11 @@ class BridgeService:
             reply_to_author=reply_to_author,
             reply_to_text=reply_to_text,
         )
-        for router in self.routers:
-            router.discord_client = self.discord_client
-            router.telegram_client = self.telegram_client
-            await router.route_telegram_to_discord(incoming)
+        correlation_id = generate_correlation_id(
+            f"telegram:{chat_id}:{message_id}" if message_id else None
+        )
+        with correlation_context(correlation_id):
+            for router in self.routers:
+                router.discord_client = self.discord_client
+                router.telegram_client = self.telegram_client
+                await router.route_telegram_to_discord(incoming)

@@ -25,6 +25,9 @@ class Settings:
     telegram_bot_token: str
     bridge_pairs: tuple[BridgePair, ...]
     forwarding_rules: ForwardingRules
+    dedup_ttl_seconds: int
+    dedup_redis_url: str | None
+    heartbeat_interval_seconds: int
 
 
 def _require_env(name: str) -> str:
@@ -36,6 +39,17 @@ def _require_env(name: str) -> str:
 
 def _require_int(name: str) -> int:
     raw = _require_env(name)
+    try:
+        return int(raw)
+    except ValueError as exc:
+        raise ConfigError(f"Environment variable {name} must be an integer") from exc
+
+
+def _parse_int_env(name: str, default: int) -> int:
+    raw = os.getenv(name)
+    if raw is None:
+        return default
+
     try:
         return int(raw)
     except ValueError as exc:
@@ -138,4 +152,7 @@ def load_settings() -> Settings:
         telegram_bot_token=_require_env("TELEGRAM_BOT_TOKEN"),
         bridge_pairs=_parse_bridge_pairs(),
         forwarding_rules=_parse_forwarding_rules(),
+        dedup_ttl_seconds=_parse_int_env("DEDUP_TTL_SECONDS", 300),
+        dedup_redis_url=os.getenv("DEDUP_REDIS_URL"),
+        heartbeat_interval_seconds=_parse_int_env("HEARTBEAT_INTERVAL_SECONDS", 60),
     )
