@@ -4,6 +4,7 @@ import asyncio
 from dataclasses import dataclass, field
 
 from src.bridge.dedup_store import BaseDedupStore
+from src.bridge.forward_mapping_store import BaseForwardMappingStore
 from src.bridge.message_router import IncomingMessage, MessageAttachment, MessageRouter
 from src.bridge.rules import ForwardingRules
 from src.config import BridgePair
@@ -15,6 +16,7 @@ class BridgeService:
     bridge_pairs: tuple[BridgePair, ...]
     forwarding_rules: ForwardingRules
     dedup_store: BaseDedupStore
+    forward_mapping_store: BaseForwardMappingStore
     discord_client: object | None = None
     telegram_client: object | None = None
     routers: list[MessageRouter] = field(init=False)
@@ -35,6 +37,7 @@ class BridgeService:
                 discord_client=self.discord_client,
                 telegram_client=self.telegram_client,
                 dedup_store=self.dedup_store,
+                forward_mapping_store=self.forward_mapping_store,
             )
             for pair in bridge_pairs
         ]
@@ -61,6 +64,7 @@ class BridgeService:
         attachments: list[MessageAttachment] | None = None,
         reply_to_author: str | None = None,
         reply_to_text: str | None = None,
+        reply_to_message_id: str | None = None,
     ) -> None:
         incoming = IncomingMessage(
             platform="discord",
@@ -71,6 +75,7 @@ class BridgeService:
             is_bot=is_bot,
             content=content,
             message_id=message_id,
+            reply_to_message_id=reply_to_message_id,
             attachments=attachments or [],
             reply_to_author=reply_to_author,
             reply_to_text=reply_to_text,
@@ -98,6 +103,7 @@ class BridgeService:
         attachments: list[MessageAttachment] | None = None,
         reply_to_author: str | None = None,
         reply_to_text: str | None = None,
+        reply_to_message_id: str | None = None,
     ) -> None:
         incoming = IncomingMessage(
             platform="telegram",
@@ -108,6 +114,7 @@ class BridgeService:
             is_bot=is_bot,
             content=content,
             message_id=message_id,
+            reply_to_message_id=reply_to_message_id,
             attachments=attachments or [],
             reply_to_author=reply_to_author,
             reply_to_text=reply_to_text,

@@ -3,7 +3,7 @@ from __future__ import annotations
 from aiogram import Bot, Dispatcher, Router
 from aiogram.exceptions import TelegramNetworkError, TelegramRetryAfter, TelegramServerError
 from aiogram.filters import Command
-from aiogram.types import Message
+from aiogram.types import Message, ReplyParameters
 
 from src.bridge.message_router import MessageAttachment
 from src.bridge.service import BridgeService
@@ -60,11 +60,14 @@ class TelegramClient:
 
             reply_to_author = None
             reply_to_text = None
-            if message.reply_to_message and message.reply_to_message.from_user:
-                reply_to_author = (
-                    message.reply_to_message.from_user.full_name
-                    or str(message.reply_to_message.from_user.id)
-                )
+            reply_to_message_id = None
+            if message.reply_to_message:
+                reply_to_message_id = str(message.reply_to_message.message_id)
+                if message.reply_to_message.from_user:
+                    reply_to_author = (
+                        message.reply_to_message.from_user.full_name
+                        or str(message.reply_to_message.from_user.id)
+                    )
                 reply_to_text = message.reply_to_message.text or message.reply_to_message.caption
 
             author = message.from_user.full_name or str(message.from_user.id)
@@ -79,6 +82,7 @@ class TelegramClient:
                 attachments=attachments,
                 reply_to_author=reply_to_author,
                 reply_to_text=reply_to_text,
+                reply_to_message_id=reply_to_message_id,
             )
 
     async def start_client(self) -> None:
@@ -93,7 +97,8 @@ class TelegramClient:
         text: str,
         *,
         message_thread_id: int | None = None,
-    ) -> None:
+        reply_to_message_id: str | None = None,
+    ) -> str:
         def _is_retryable(exc: Exception) -> tuple[bool, int | None]:
             if isinstance(exc, TelegramRetryAfter):
                 return True, 429
@@ -103,12 +108,18 @@ class TelegramClient:
                 return True, 503
             return False, None
 
-        await retry_with_backoff(
+        reply_parameters = None
+        if reply_to_message_id:
+            reply_parameters = ReplyParameters(message_id=int(reply_to_message_id))
+
+        sent = await retry_with_backoff(
             "telegram.send_message",
             lambda: self._bot.send_message(
                 chat_id=chat_id,
                 text=text,
                 message_thread_id=message_thread_id,
+                reply_parameters=reply_parameters,
             ),
             is_retryable=_is_retryable,
         )
+        return str(sent.message_id)
