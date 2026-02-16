@@ -44,16 +44,41 @@ async def run() -> None:
 
     discord_task = asyncio.create_task(discord_client.start_client(), name="discord-client")
     telegram_task = asyncio.create_task(telegram_client.start_client(), name="telegram-client")
+    stop_wait_task = asyncio.create_task(stop_event.wait(), name="stop-wait")
 
-    await stop_event.wait()
+    tasks = (discord_task, telegram_task)
 
-    await discord_client.stop_client()
-    await telegram_client.stop_client()
+    try:
+        done, _ = await asyncio.wait(
+            (*tasks, stop_wait_task),
+            return_when=asyncio.FIRST_COMPLETED,
+        )
 
-    for task in (discord_task, telegram_task):
-        task.cancel()
+        if stop_wait_task not in done:
+            for task in done:
+                if task is stop_wait_task:
+                    continue
+
+                if task.cancelled():
+                    raise RuntimeError(f"{task.get_name()} was cancelled during startup")
+
+                exc = task.exception()
+                if exc is not None:
+                    raise RuntimeError(f"{task.get_name()} failed during startup") from exc
+
+                raise RuntimeError(f"{task.get_name()} exited unexpectedly")
+    finally:
+        stop_wait_task.cancel()
         with contextlib.suppress(asyncio.CancelledError):
-            await task
+            await stop_wait_task
+
+        await discord_client.stop_client()
+        await telegram_client.stop_client()
+
+        for task in tasks:
+            task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await task
 
 
 if __name__ == "__main__":
