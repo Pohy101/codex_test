@@ -14,18 +14,16 @@ async def run() -> None:
     settings = load_settings()
 
     bridge = BridgeService(
-        discord_channel_id=settings.discord_channel_id,
-        telegram_chat_id=settings.telegram_chat_id,
+        bridge_pairs=settings.bridge_pairs,
+        forwarding_rules=settings.forwarding_rules,
     )
 
     discord_client = DiscordClient(
         token=settings.discord_bot_token,
-        channel_id=settings.discord_channel_id,
         bridge=bridge,
     )
     telegram_client = TelegramClient(
         token=settings.telegram_bot_token,
-        chat_id=settings.telegram_chat_id,
         bridge=bridge,
     )
 

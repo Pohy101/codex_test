@@ -9,8 +9,7 @@ from src.bridge.service import BridgeService
 
 
 class TelegramClient:
-    def __init__(self, *, token: str, chat_id: int, bridge: BridgeService) -> None:
-        self._chat_id = chat_id
+    def __init__(self, *, token: str, bridge: BridgeService) -> None:
         self._bridge = bridge
         self._bot = Bot(token=token)
         self._dispatcher = Dispatcher()
@@ -25,9 +24,7 @@ class TelegramClient:
 
         @self._router.message()
         async def forward_message(message: Message) -> None:
-            if message.chat.id != self._chat_id:
-                return
-            if message.from_user is None or message.from_user.is_bot:
+            if message.from_user is None:
                 return
 
             content = (message.text or message.caption or "").strip()
@@ -72,6 +69,8 @@ class TelegramClient:
             await self._bridge.handle_telegram_message(
                 content=content,
                 author_name=author,
+                author_id=str(message.from_user.id),
+                is_bot=message.from_user.is_bot,
                 chat_id=message.chat.id,
                 message_id=str(message.message_id),
                 attachments=attachments,
@@ -85,5 +84,5 @@ class TelegramClient:
     async def stop_client(self) -> None:
         await self._bot.session.close()
 
-    async def send_message(self, text: str) -> None:
-        await self._bot.send_message(chat_id=self._chat_id, text=text)
+    async def send_message(self, chat_id: int, text: str) -> None:
+        await self._bot.send_message(chat_id=chat_id, text=text)
