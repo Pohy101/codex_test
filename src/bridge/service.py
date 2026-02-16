@@ -1,6 +1,8 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+
+from src.bridge.message_router import IncomingMessage, MessageAttachment, MessageRouter
 
 
 @dataclass
@@ -9,25 +11,62 @@ class BridgeService:
     telegram_chat_id: int
     discord_client: object | None = None
     telegram_client: object | None = None
+    router: MessageRouter = field(init=False)
 
-    async def handle_discord_message(self, *, content: str, author_name: str, channel_id: int) -> None:
-        if channel_id != self.discord_channel_id or not content.strip():
-            return
-        text = f"[Discord] {author_name}: {content}"
-        await self.forward_to_telegram(text)
+    def __post_init__(self) -> None:
+        self.router = MessageRouter(
+            discord_channel_id=self.discord_channel_id,
+            telegram_chat_id=self.telegram_chat_id,
+            discord_client=self.discord_client,
+            telegram_client=self.telegram_client,
+        )
 
-    async def handle_telegram_message(self, *, content: str, author_name: str, chat_id: int) -> None:
-        if chat_id != self.telegram_chat_id or not content.strip():
-            return
-        text = f"[Telegram] {author_name}: {content}"
-        await self.forward_to_discord(text)
+    async def handle_discord_message(
+        self,
+        *,
+        content: str,
+        author_name: str,
+        channel_id: int,
+        message_id: str | None = None,
+        attachments: list[MessageAttachment] | None = None,
+        reply_to_author: str | None = None,
+        reply_to_text: str | None = None,
+    ) -> None:
+        self.router.discord_client = self.discord_client
+        self.router.telegram_client = self.telegram_client
+        incoming = IncomingMessage(
+            platform="discord",
+            chat_id=channel_id,
+            author_name=author_name,
+            content=content,
+            message_id=message_id,
+            attachments=attachments or [],
+            reply_to_author=reply_to_author,
+            reply_to_text=reply_to_text,
+        )
+        await self.router.route_discord_to_telegram(incoming)
 
-    async def forward_to_discord(self, text: str) -> None:
-        if self.discord_client is None:
-            raise RuntimeError("Discord client is not configured")
-        await self.discord_client.send_message(text)
-
-    async def forward_to_telegram(self, text: str) -> None:
-        if self.telegram_client is None:
-            raise RuntimeError("Telegram client is not configured")
-        await self.telegram_client.send_message(text)
+    async def handle_telegram_message(
+        self,
+        *,
+        content: str,
+        author_name: str,
+        chat_id: int,
+        message_id: str | None = None,
+        attachments: list[MessageAttachment] | None = None,
+        reply_to_author: str | None = None,
+        reply_to_text: str | None = None,
+    ) -> None:
+        self.router.discord_client = self.discord_client
+        self.router.telegram_client = self.telegram_client
+        incoming = IncomingMessage(
+            platform="telegram",
+            chat_id=chat_id,
+            author_name=author_name,
+            content=content,
+            message_id=message_id,
+            attachments=attachments or [],
+            reply_to_author=reply_to_author,
+            reply_to_text=reply_to_text,
+        )
+        await self.router.route_telegram_to_discord(incoming)

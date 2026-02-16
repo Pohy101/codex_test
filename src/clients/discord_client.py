@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import discord
 
+from src.bridge.message_router import MessageAttachment
 from src.bridge.service import BridgeService
 
 
@@ -22,10 +23,26 @@ class DiscordClient(discord.Client):
         if message.author == self.user or message.author.bot:
             return
 
+        reply_to_author = None
+        reply_to_text = None
+        if message.reference and message.reference.resolved and isinstance(message.reference.resolved, discord.Message):
+            ref = message.reference.resolved
+            reply_to_author = ref.author.display_name
+            reply_to_text = ref.content
+
+        attachments = [
+            MessageAttachment(filename=attachment.filename, url=attachment.url)
+            for attachment in message.attachments
+        ]
+
         await self._bridge.handle_discord_message(
             content=message.content,
             author_name=message.author.display_name,
             channel_id=message.channel.id,
+            message_id=str(message.id),
+            attachments=attachments,
+            reply_to_author=reply_to_author,
+            reply_to_text=reply_to_text,
         )
 
     async def start_client(self) -> None:

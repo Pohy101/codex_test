@@ -4,6 +4,7 @@ from aiogram import Bot, Dispatcher, Router
 from aiogram.filters import Command
 from aiogram.types import Message
 
+from src.bridge.message_router import MessageAttachment
 from src.bridge.service import BridgeService
 
 
@@ -28,14 +29,54 @@ class TelegramClient:
                 return
             if message.from_user is None or message.from_user.is_bot:
                 return
-            if message.text is None:
+
+            content = (message.text or message.caption or "").strip()
+            attachments: list[MessageAttachment] = []
+
+            if message.photo:
+                largest_photo = message.photo[-1]
+                attachments.append(
+                    MessageAttachment(
+                        filename=f"photo_{largest_photo.file_unique_id}.jpg",
+                        url=None,
+                    )
+                )
+            if message.document:
+                attachments.append(
+                    MessageAttachment(
+                        filename=message.document.file_name,
+                        url=None,
+                    )
+                )
+            if message.video:
+                attachments.append(
+                    MessageAttachment(
+                        filename=message.video.file_name or f"video_{message.video.file_unique_id}.mp4",
+                        url=None,
+                    )
+                )
+
+            if not content and not attachments:
                 return
+
+            reply_to_author = None
+            reply_to_text = None
+            if message.reply_to_message and message.reply_to_message.from_user:
+                reply_to_author = (
+                    message.reply_to_message.from_user.full_name
+                    or str(message.reply_to_message.from_user.id)
+                )
+                reply_to_text = message.reply_to_message.text or message.reply_to_message.caption
 
             author = message.from_user.full_name or str(message.from_user.id)
             await self._bridge.handle_telegram_message(
-                content=message.text,
+                content=content,
                 author_name=author,
                 chat_id=message.chat.id,
+                message_id=str(message.message_id),
+                attachments=attachments,
+                reply_to_author=reply_to_author,
+                reply_to_text=reply_to_text,
             )
 
     async def start_client(self) -> None:
