@@ -1,0 +1,141 @@
+<!doctype html>
+<html lang="ru">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Bridge Admin</title>
+    <style>
+      body { font-family: Arial, sans-serif; max-width: 920px; margin: 24px auto; padding: 0 12px; }
+      form { display: grid; grid-template-columns: 1fr 1fr auto; gap: 8px; margin-bottom: 16px; }
+      input, button { padding: 8px; }
+      table { border-collapse: collapse; width: 100%; }
+      th, td { border: 1px solid #ddd; padding: 8px; text-align: left; }
+      .actions { display: flex; gap: 8px; }
+      #status { margin-bottom: 12px; color: #1e5; }
+    </style>
+  </head>
+  <body>
+    <h1>Bridge pairs</h1>
+    <p>Для API используется заголовок <code>Authorization: Bearer &lt;ADMIN_TOKEN&gt;</code>.</p>
+    <div id="status"></div>
+
+    <form id="pair-form">
+      <input id="discord-channel-id" type="number" placeholder="Discord channel ID" required />
+      <input id="telegram-chat-id" type="number" placeholder="Telegram chat ID" required />
+      <button type="submit">Добавить</button>
+    </form>
+
+    <table>
+      <thead>
+        <tr>
+          <th>ID</th>
+          <th>Discord channel</th>
+          <th>Telegram chat</th>
+          <th>Действия</th>
+        </tr>
+      </thead>
+      <tbody id="pairs-table"></tbody>
+    </table>
+
+    <script>
+      const token = localStorage.getItem('adminToken') || prompt('Введите ADMIN_TOKEN для запросов API:');
+      if (token) localStorage.setItem('adminToken', token);
+
+      const status = document.getElementById('status');
+      const table = document.getElementById('pairs-table');
+      const form = document.getElementById('pair-form');
+
+      const headers = token ? { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' } : { 'Content-Type': 'application/json' };
+
+      function setStatus(message, isError = false) {
+        status.textContent = message;
+        status.style.color = isError ? '#d22' : '#1a5';
+      }
+
+      async function fetchPairs() {
+        const response = await fetch('/api/bridge-pairs', { headers });
+        if (!response.ok) throw new Error(`Ошибка загрузки: ${response.status}`);
+        return response.json();
+      }
+
+      async function renderPairs() {
+        try {
+          const pairs = await fetchPairs();
+          table.innerHTML = '';
+          for (const pair of pairs) {
+            const row = document.createElement('tr');
+            row.innerHTML = `
+              <td>${pair.id}</td>
+              <td>${pair.discord_channel_id}</td>
+              <td>${pair.telegram_chat_id}</td>
+              <td class="actions">
+                <button data-action="edit" data-id="${pair.id}">Изменить</button>
+                <button data-action="delete" data-id="${pair.id}">Удалить</button>
+              </td>
+            `;
+            table.appendChild(row);
+          }
+        } catch (error) {
+          setStatus(error.message, true);
+        }
+      }
+
+      form.addEventListener('submit', async (event) => {
+        event.preventDefault();
+        const discord_channel_id = Number(document.getElementById('discord-channel-id').value);
+        const telegram_chat_id = Number(document.getElementById('telegram-chat-id').value);
+        const response = await fetch('/api/bridge-pairs', {
+          method: 'POST',
+          headers,
+          body: JSON.stringify({ discord_channel_id, telegram_chat_id }),
+        });
+        if (!response.ok) {
+          setStatus(`Ошибка создания: ${response.status}`, true);
+          return;
+        }
+        setStatus('Пара создана');
+        form.reset();
+        await renderPairs();
+      });
+
+      table.addEventListener('click', async (event) => {
+        const button = event.target.closest('button');
+        if (!button) return;
+
+        const pairId = button.dataset.id;
+        if (button.dataset.action === 'delete') {
+          const response = await fetch(`/api/bridge-pairs/${pairId}`, { method: 'DELETE', headers });
+          if (!response.ok) {
+            setStatus(`Ошибка удаления: ${response.status}`, true);
+            return;
+          }
+          setStatus('Пара удалена');
+          await renderPairs();
+          return;
+        }
+
+        if (button.dataset.action === 'edit') {
+          const discord_channel_id = Number(prompt('Новый Discord channel ID:'));
+          const telegram_chat_id = Number(prompt('Новый Telegram chat ID:'));
+          if (!Number.isFinite(discord_channel_id) || !Number.isFinite(telegram_chat_id)) {
+            setStatus('Некорректные значения', true);
+            return;
+          }
+          const response = await fetch(`/api/bridge-pairs/${pairId}`, {
+            method: 'PUT',
+            headers,
+            body: JSON.stringify({ discord_channel_id, telegram_chat_id }),
+          });
+          if (!response.ok) {
+            setStatus(`Ошибка обновления: ${response.status}`, true);
+            return;
+          }
+          setStatus('Пара обновлена');
+          await renderPairs();
+        }
+      });
+
+      renderPairs();
+    </script>
+  </body>
+</html>
