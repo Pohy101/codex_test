@@ -1,9 +1,9 @@
 from __future__ import annotations
 
 import logging
-from collections import deque
 from dataclasses import dataclass, field
 
+from src.bridge.dedup_store import BaseDedupStore, InMemoryDedupStore
 from src.bridge.rules import ForwardingRules, should_forward_discord, should_forward_telegram
 
 DISCORD_LIMIT = 2000
@@ -56,21 +56,19 @@ class MessageRouter:
         forwarding_rules: ForwardingRules,
         discord_client: object | None = None,
         telegram_client: object | None = None,
-        marker_cache_size: int = 2000,
+        dedup_store: BaseDedupStore | None = None,
     ) -> None:
         self.discord_channel_id = discord_channel_id
         self.telegram_chat_id = telegram_chat_id
         self.forwarding_rules = forwarding_rules
         self.discord_client = discord_client
         self.telegram_client = telegram_client
-        self._marker_cache_size = marker_cache_size
-        self._marker_cache: deque[str] = deque(maxlen=marker_cache_size)
-        self._marker_lookup: set[str] = set()
+        self._dedup_store = dedup_store or InMemoryDedupStore()
 
     async def route_discord_to_telegram(self, message: IncomingMessage) -> None:
         if message.chat_id != self.discord_channel_id:
             return
-        if self._is_mirrored(message):
+        if await self._is_mirrored(message):
             logger.debug("Reject Discord forward: mirrored message", extra={"message_id": message.message_id})
             return
 
@@ -97,13 +95,12 @@ class MessageRouter:
             logger.debug("Reject Discord forward: empty payload", extra={"message_id": message.message_id})
             return
 
-        self._remember_marker(message)
         await self._send_to_telegram(self.telegram_chat_id, payload)
 
     async def route_telegram_to_discord(self, message: IncomingMessage) -> None:
         if message.chat_id != self.telegram_chat_id:
             return
-        if self._is_mirrored(message):
+        if await self._is_mirrored(message):
             logger.debug("Reject Telegram forward: mirrored message", extra={"message_id": message.message_id})
             return
 
@@ -130,7 +127,6 @@ class MessageRouter:
             logger.debug("Reject Telegram forward: empty payload", extra={"message_id": message.message_id})
             return
 
-        self._remember_marker(message)
         await self._send_to_discord(self.discord_channel_id, payload)
 
     def _format_message(
@@ -163,25 +159,13 @@ class MessageRouter:
         ellipsis = "…"
         return f"{text[: limit - len(ellipsis)].rstrip()}{ellipsis}"
 
-    def _is_mirrored(self, message: IncomingMessage) -> bool:
+    async def _is_mirrored(self, message: IncomingMessage) -> bool:
         if _HIDDEN_DC_MARKER in message.content or _HIDDEN_TG_MARKER in message.content:
             return True
         key = message.marker_key()
-        return bool(key) and key in self._marker_lookup
-
-    def _remember_marker(self, message: IncomingMessage) -> None:
-        key = message.marker_key()
         if not key:
-            return
-        if key in self._marker_lookup:
-            return
-
-        if len(self._marker_cache) == self._marker_cache_size:
-            expired = self._marker_cache[0]
-            self._marker_lookup.discard(expired)
-
-        self._marker_cache.append(key)
-        self._marker_lookup.add(key)
+            return False
+        return await self._dedup_store.seen_or_add(key)
 
     async def _send_to_discord(self, channel_id: int, text: str) -> None:
         if self.discord_client is None:

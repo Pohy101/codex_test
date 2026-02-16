@@ -1,9 +1,14 @@
 from __future__ import annotations
 
+import logging
+
 import discord
 
 from src.bridge.message_router import MessageAttachment
 from src.bridge.service import BridgeService
+from src.retry import retry_with_backoff
+
+logger = logging.getLogger(__name__)
 
 
 class DiscordClient(discord.Client):
@@ -16,7 +21,7 @@ class DiscordClient(discord.Client):
 
     async def on_ready(self) -> None:
         user = self.user.name if self.user else "unknown"
-        print(f"Discord client connected as {user}")
+        logger.info("Discord client connected", extra={"author_id": user})
 
     async def on_message(self, message: discord.Message) -> None:
         if message.author == self.user:
@@ -58,8 +63,17 @@ class DiscordClient(discord.Client):
         if channel is None:
             channel = await self.fetch_channel(channel_id)
 
-        if isinstance(channel, discord.abc.Messageable):
-            await channel.send(text)
-            return
+        if not isinstance(channel, discord.abc.Messageable):
+            raise RuntimeError("Configured Discord channel is not messageable")
 
-        raise RuntimeError("Configured Discord channel is not messageable")
+        def _is_retryable(exc: Exception) -> tuple[bool, int | None]:
+            if isinstance(exc, discord.HTTPException):
+                status_code = exc.status
+                return status_code in {429, 500, 502, 503, 504}, status_code
+            return False, None
+
+        await retry_with_backoff(
+            "discord.send_message",
+            lambda: channel.send(text),
+            is_retryable=_is_retryable,
+        )

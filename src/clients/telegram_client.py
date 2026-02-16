@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 from aiogram import Bot, Dispatcher, Router
+from aiogram.exceptions import TelegramNetworkError, TelegramRetryAfter, TelegramServerError
 from aiogram.filters import Command
 from aiogram.types import Message
 
 from src.bridge.message_router import MessageAttachment
 from src.bridge.service import BridgeService
+from src.retry import retry_with_backoff
 
 
 class TelegramClient:
@@ -85,4 +87,17 @@ class TelegramClient:
         await self._bot.session.close()
 
     async def send_message(self, chat_id: int, text: str) -> None:
-        await self._bot.send_message(chat_id=chat_id, text=text)
+        def _is_retryable(exc: Exception) -> tuple[bool, int | None]:
+            if isinstance(exc, TelegramRetryAfter):
+                return True, 429
+            if isinstance(exc, TelegramServerError):
+                return True, 500
+            if isinstance(exc, TelegramNetworkError):
+                return True, 503
+            return False, None
+
+        await retry_with_backoff(
+            "telegram.send_message",
+            lambda: self._bot.send_message(chat_id=chat_id, text=text),
+            is_retryable=_is_retryable,
+        )
