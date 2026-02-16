@@ -46,6 +46,7 @@ TELEGRAM_CHAT_ID=-1001234567890
 
 # Опционально
 # BRIDGE_PAIRS=[{"discord_channel_id":123456789012345678,"telegram_chat_id":-1001234567890}]
+# BRIDGE_PAIRS_STORE_PATH=data/bridge_pairs.json
 # WHITELIST_USERS=["alice", "12345"]
 # BLACKLIST_USERS=[]
 # EXCLUDED_COMMANDS=["/start","!admin"]
@@ -53,9 +54,13 @@ TELEGRAM_CHAT_ID=-1001234567890
 # DEDUP_TTL_SECONDS=300
 # DEDUP_REDIS_URL=redis://redis:6379/0
 # HEARTBEAT_INTERVAL_SECONDS=60
+# ADMIN_TOKEN=change_me
+# ADMIN_HOST=0.0.0.0
+# ADMIN_PORT=8080
 ```
 
 > Можно использовать либо пару `DISCORD_CHANNEL_ID` + `TELEGRAM_CHAT_ID`, либо массив `BRIDGE_PAIRS` (JSON).
+> При первом запуске пары из env инициализируют JSON-хранилище `BRIDGE_PAIRS_STORE_PATH`.
 
 ## 4) Локальный запуск
 
@@ -73,6 +78,16 @@ python -m src.main
 ```bash
 docker compose up --build
 ```
+
+Админ-панель доступна по `http://localhost:8080/` (или вашему `ADMIN_PORT`).
+Для API и страницы используется заголовок `Authorization: Bearer <ADMIN_TOKEN>`.
+
+### API админки
+
+- `GET /api/bridge-pairs`
+- `POST /api/bridge-pairs`
+- `PUT /api/bridge-pairs/{id}`
+- `DELETE /api/bridge-pairs/{id}`
 
 ## Ограничения
 

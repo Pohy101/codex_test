@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 from dataclasses import dataclass, field
 
 from src.bridge.dedup_store import BaseDedupStore
@@ -17,9 +18,14 @@ class BridgeService:
     discord_client: object | None = None
     telegram_client: object | None = None
     routers: list[MessageRouter] = field(init=False)
+    _routers_lock: asyncio.Lock = field(init=False, repr=False)
 
     def __post_init__(self) -> None:
-        self.routers = [
+        self._routers_lock = asyncio.Lock()
+        self.routers = self._build_routers(self.bridge_pairs)
+
+    def _build_routers(self, bridge_pairs: tuple[BridgePair, ...]) -> list[MessageRouter]:
+        return [
             MessageRouter(
                 discord_channel_id=pair.discord_channel_id,
                 telegram_chat_id=pair.telegram_chat_id,
@@ -28,8 +34,17 @@ class BridgeService:
                 telegram_client=self.telegram_client,
                 dedup_store=self.dedup_store,
             )
-            for pair in self.bridge_pairs
+            for pair in bridge_pairs
         ]
+
+    async def update_bridge_pairs(self, bridge_pairs: tuple[BridgePair, ...]) -> None:
+        async with self._routers_lock:
+            self.bridge_pairs = bridge_pairs
+            self.routers = self._build_routers(bridge_pairs)
+
+    async def _routers_snapshot(self) -> tuple[MessageRouter, ...]:
+        async with self._routers_lock:
+            return tuple(self.routers)
 
     async def handle_discord_message(
         self,
@@ -59,8 +74,9 @@ class BridgeService:
         correlation_id = generate_correlation_id(
             f"discord:{channel_id}:{message_id}" if message_id else None
         )
+        routers = await self._routers_snapshot()
         with correlation_context(correlation_id):
-            for router in self.routers:
+            for router in routers:
                 router.discord_client = self.discord_client
                 router.telegram_client = self.telegram_client
                 await router.route_discord_to_telegram(incoming)
@@ -93,8 +109,9 @@ class BridgeService:
         correlation_id = generate_correlation_id(
             f"telegram:{chat_id}:{message_id}" if message_id else None
         )
+        routers = await self._routers_snapshot()
         with correlation_context(correlation_id):
-            for router in self.routers:
+            for router in routers:
                 router.discord_client = self.discord_client
                 router.telegram_client = self.telegram_client
                 await router.route_telegram_to_discord(incoming)

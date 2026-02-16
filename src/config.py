@@ -28,6 +28,10 @@ class Settings:
     dedup_ttl_seconds: int
     dedup_redis_url: str | None
     heartbeat_interval_seconds: int
+    bridge_pairs_store_path: str
+    admin_token: str | None
+    admin_host: str
+    admin_port: int
 
 
 def _require_env(name: str) -> str:
@@ -155,4 +159,8 @@ def load_settings() -> Settings:
         dedup_ttl_seconds=_parse_int_env("DEDUP_TTL_SECONDS", 300),
         dedup_redis_url=os.getenv("DEDUP_REDIS_URL"),
         heartbeat_interval_seconds=_parse_int_env("HEARTBEAT_INTERVAL_SECONDS", 60),
+        bridge_pairs_store_path=os.getenv("BRIDGE_PAIRS_STORE_PATH", "data/bridge_pairs.json"),
+        admin_token=os.getenv("ADMIN_TOKEN"),
+        admin_host=os.getenv("ADMIN_HOST", "0.0.0.0"),
+        admin_port=_parse_int_env("ADMIN_PORT", 8080),
     )
