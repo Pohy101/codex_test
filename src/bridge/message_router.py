@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass, field
+from typing import Literal
 
 from src.bridge.dedup_store import BaseDedupStore, InMemoryDedupStore
 from src.bridge.forward_mapping_store import BaseForwardMappingStore, ForwardContext, InMemoryForwardMappingStore
@@ -9,6 +10,9 @@ from src.bridge.rules import ForwardingRules, should_forward_discord, should_for
 
 DISCORD_LIMIT = 2000
 TELEGRAM_LIMIT = 4096
+
+DISCORD_FILE_SIZE_LIMIT = 25 * 1024 * 1024
+TELEGRAM_FILE_SIZE_LIMIT = 50 * 1024 * 1024
 
 _DISCORD_PREFIX = "[dc]"
 _TELEGRAM_PREFIX = "[tg]"
@@ -20,14 +24,24 @@ logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
-class MessageAttachment:
-    filename: str | None = None
+class MediaItem:
+    kind: Literal["photo", "video", "audio", "voice", "document", "sticker", "animation", "emoji", "other"]
+    platform_file_id: str | None = None
     url: str | None = None
+    mime_type: str | None = None
+    filename: str | None = None
+    duration: int | None = None
+    caption: str | None = None
+    file_size: int | None = None
+    data: bytes | None = None
 
     def render(self) -> str:
-        if self.filename and self.url:
-            return f"{self.filename}: {self.url}"
-        return self.url or self.filename or "attachment"
+        name = self.filename or self.kind
+        if self.url:
+            return f"{name}: {self.url}"
+        if self.platform_file_id:
+            return f"{name} (id: {self.platform_file_id})"
+        return name
 
 
 @dataclass
@@ -35,7 +49,7 @@ class IncomingMessage:
     platform: str
     chat_id: int
     thread_id: int | None = None
-    author_name: str
+    author_name: str = ""
     author_id: str | None = None
     is_bot: bool = False
     content: str = ""
@@ -43,7 +57,7 @@ class IncomingMessage:
     reply_to_message_id: str | None = None
     reply_to_author: str | None = None
     reply_to_text: str | None = None
-    attachments: list[MessageAttachment] = field(default_factory=list)
+    media_items: list[MediaItem] = field(default_factory=list)
 
     def marker_key(self) -> str:
         msg_id = self.message_id or ""
@@ -112,16 +126,28 @@ class MessageRouter:
             hidden_marker=_HIDDEN_DC_MARKER,
             include_reply_fallback=not bool(target_reply_to_message_id),
         )
-        if not payload.strip():
+
+        target_message_id = None
+        if payload.strip():
+            target_message_id = await self._send_to_telegram(
+                self.telegram_chat_id,
+                payload,
+                message_thread_id=self.telegram_thread_id,
+                reply_to_message_id=target_reply_to_message_id,
+            )
+
+        for media_item in message.media_items:
+            await self._forward_media_to_telegram(
+                media_item,
+                chat_id=self.telegram_chat_id,
+                message_thread_id=self.telegram_thread_id,
+                reply_to_message_id=target_reply_to_message_id,
+            )
+
+        if not payload.strip() and not message.media_items:
             logger.debug("Reject Discord forward: empty payload", extra={"message_id": message.message_id})
             return
 
-        target_message_id = await self._send_to_telegram(
-            self.telegram_chat_id,
-            payload,
-            message_thread_id=self.telegram_thread_id,
-            reply_to_message_id=target_reply_to_message_id,
-        )
         await self._store_mapping(
             message=message,
             target_platform="telegram",
@@ -164,15 +190,26 @@ class MessageRouter:
             hidden_marker=_HIDDEN_TG_MARKER,
             include_reply_fallback=not bool(target_reply_to_message_id),
         )
-        if not payload.strip():
+
+        target_message_id = None
+        if payload.strip():
+            target_message_id = await self._send_to_discord(
+                self.discord_channel_id,
+                payload,
+                reference_message_id=target_reply_to_message_id,
+            )
+
+        for media_item in message.media_items:
+            await self._forward_media_to_discord(
+                media_item,
+                channel_id=self.discord_channel_id,
+                reference_message_id=target_reply_to_message_id,
+            )
+
+        if not payload.strip() and not message.media_items:
             logger.debug("Reject Telegram forward: empty payload", extra={"message_id": message.message_id})
             return
 
-        target_message_id = await self._send_to_discord(
-            self.discord_channel_id,
-            payload,
-            reference_message_id=target_reply_to_message_id,
-        )
         await self._store_mapping(
             message=message,
             target_platform="discord",
@@ -196,9 +233,9 @@ class MessageRouter:
             reply_excerpt = self._safe_truncate(message.reply_to_text.strip(), 180)
             lines.insert(0, f"↪ reply to {reply_author}: {reply_excerpt}")
 
-        if message.attachments:
+        if message.media_items:
             lines.append("Attachments:")
-            lines.extend(f"- {attachment.render()}" for attachment in message.attachments)
+            lines.extend(f"- {media_item.render()}" for media_item in message.media_items)
 
         merged = "\n".join(line for line in lines if line.strip())
         safe_limit = max_len - len(hidden_marker)
@@ -289,4 +326,137 @@ class MessageRouter:
             text,
             message_thread_id=message_thread_id,
             reply_to_message_id=reply_to_message_id,
+        )
+
+    async def _forward_media_to_discord(
+        self,
+        media_item: MediaItem,
+        *,
+        channel_id: int,
+        reference_message_id: str | None,
+    ) -> None:
+        if self.discord_client is None:
+            raise RuntimeError("Discord client is not configured")
+
+        data = media_item.data
+        if data is None and media_item.platform_file_id and self.telegram_client is not None:
+            data = await self.telegram_client.download_file_by_id(media_item.platform_file_id)
+
+        if data is None:
+            await self._send_to_discord(
+                channel_id,
+                self._unsupported_media_fallback(media_item, "discord"),
+                reference_message_id=reference_message_id,
+            )
+            return
+
+        if len(data) > DISCORD_FILE_SIZE_LIMIT:
+            await self._send_to_discord(
+                channel_id,
+                self._size_limit_fallback(media_item, len(data), DISCORD_FILE_SIZE_LIMIT, "discord"),
+                reference_message_id=reference_message_id,
+            )
+            return
+
+        senders = {
+            "photo": self.discord_client.send_photo,
+            "video": self.discord_client.send_video,
+            "audio": self.discord_client.send_audio,
+            "voice": self.discord_client.send_voice,
+            "document": self.discord_client.send_document,
+            "sticker": self.discord_client.send_sticker,
+            "animation": self.discord_client.send_video,
+        }
+        sender = senders.get(media_item.kind)
+        if sender is None:
+            await self._send_to_discord(
+                channel_id,
+                self._unsupported_media_fallback(media_item, "discord"),
+                reference_message_id=reference_message_id,
+            )
+            return
+
+        await sender(
+            channel_id,
+            data,
+            filename=media_item.filename,
+            caption=media_item.caption,
+            mime_type=media_item.mime_type,
+            reference_message_id=reference_message_id,
+        )
+
+    async def _forward_media_to_telegram(
+        self,
+        media_item: MediaItem,
+        *,
+        chat_id: int,
+        message_thread_id: int | None,
+        reply_to_message_id: str | None,
+    ) -> None:
+        if self.telegram_client is None:
+            raise RuntimeError("Telegram client is not configured")
+
+        data = media_item.data
+        if data is None and media_item.url and self.discord_client is not None:
+            data = await self.discord_client.download_attachment(media_item.url)
+
+        if data is None:
+            await self._send_to_telegram(
+                chat_id,
+                self._unsupported_media_fallback(media_item, "telegram"),
+                message_thread_id=message_thread_id,
+                reply_to_message_id=reply_to_message_id,
+            )
+            return
+
+        if len(data) > TELEGRAM_FILE_SIZE_LIMIT:
+            await self._send_to_telegram(
+                chat_id,
+                self._size_limit_fallback(media_item, len(data), TELEGRAM_FILE_SIZE_LIMIT, "telegram"),
+                message_thread_id=message_thread_id,
+                reply_to_message_id=reply_to_message_id,
+            )
+            return
+
+        senders = {
+            "photo": self.telegram_client.send_photo,
+            "video": self.telegram_client.send_video,
+            "audio": self.telegram_client.send_audio,
+            "voice": self.telegram_client.send_voice,
+            "document": self.telegram_client.send_document,
+            "sticker": self.telegram_client.send_sticker,
+            "animation": self.telegram_client.send_animation,
+        }
+        sender = senders.get(media_item.kind)
+        if sender is None:
+            await self._send_to_telegram(
+                chat_id,
+                self._unsupported_media_fallback(media_item, "telegram"),
+                message_thread_id=message_thread_id,
+                reply_to_message_id=reply_to_message_id,
+            )
+            return
+
+        await sender(
+            chat_id,
+            data,
+            filename=media_item.filename,
+            caption=media_item.caption,
+            mime_type=media_item.mime_type,
+            duration=media_item.duration,
+            message_thread_id=message_thread_id,
+            reply_to_message_id=reply_to_message_id,
+        )
+
+    @staticmethod
+    def _unsupported_media_fallback(media_item: MediaItem, platform: str) -> str:
+        details = media_item.url or media_item.platform_file_id or "no source"
+        return f"Unsupported media type '{media_item.kind}' for {platform}. Source: {details}"
+
+    @staticmethod
+    def _size_limit_fallback(media_item: MediaItem, actual_size: int, limit_size: int, platform: str) -> str:
+        details = media_item.url or media_item.platform_file_id or media_item.filename or media_item.kind
+        return (
+            f"Cannot forward {media_item.kind} to {platform}: file too large "
+            f"({actual_size} bytes > {limit_size} bytes). Source: {details}"
         )
