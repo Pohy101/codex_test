@@ -7,12 +7,11 @@ from src.bridge.service import BridgeService
 
 
 class DiscordClient(discord.Client):
-    def __init__(self, *, token: str, channel_id: int, bridge: BridgeService) -> None:
+    def __init__(self, *, token: str, bridge: BridgeService) -> None:
         intents = discord.Intents.default()
         intents.message_content = True
         super().__init__(intents=intents)
         self._token = token
-        self._channel_id = channel_id
         self._bridge = bridge
 
     async def on_ready(self) -> None:
@@ -20,7 +19,7 @@ class DiscordClient(discord.Client):
         print(f"Discord client connected as {user}")
 
     async def on_message(self, message: discord.Message) -> None:
-        if message.author == self.user or message.author.bot:
+        if message.author == self.user:
             return
 
         reply_to_author = None
@@ -38,6 +37,8 @@ class DiscordClient(discord.Client):
         await self._bridge.handle_discord_message(
             content=message.content,
             author_name=message.author.display_name,
+            author_id=str(message.author.id),
+            is_bot=message.author.bot,
             channel_id=message.channel.id,
             message_id=str(message.id),
             attachments=attachments,
@@ -52,10 +53,10 @@ class DiscordClient(discord.Client):
         if not self.is_closed():
             await self.close()
 
-    async def send_message(self, text: str) -> None:
-        channel = self.get_channel(self._channel_id)
+    async def send_message(self, channel_id: int, text: str) -> None:
+        channel = self.get_channel(channel_id)
         if channel is None:
-            channel = await self.fetch_channel(self._channel_id)
+            channel = await self.fetch_channel(channel_id)
 
         if isinstance(channel, discord.abc.Messageable):
             await channel.send(text)
