@@ -23,7 +23,7 @@
 1. Пригласите бота на сервер через OAuth2 URL (Scopes: `bot`, Bot Permissions: минимум `View Channels`, `Send Messages`, `Read Message History`).
 2. В Discord включите **Developer Mode** (User Settings → Advanced).
 3. Правой кнопкой по нужному каналу → **Copy Channel ID**.
-4. Используйте это значение в `DISCORD_CHANNEL_ID`.
+4. Добавьте этот ID в объект `BRIDGE_PAIRS` как `discord_channel_id`.
 
 ### Telegram: права и ID чата
 1. Добавьте бота в нужный чат/группу/канал.
@@ -32,7 +32,7 @@
    - отправьте сообщение в чат,
    - выполните запрос: `https://api.telegram.org/bot<TELEGRAM_BOT_TOKEN>/getUpdates`,
    - найдите поле `chat.id` в ответе.
-4. Используйте это значение в `TELEGRAM_CHAT_ID`.
+4. Добавьте этот ID в объект `BRIDGE_PAIRS` как `telegram_chat_id`.
 
 ## 3) Настройка `.env`
 
@@ -41,8 +41,7 @@
 ```env
 DISCORD_BOT_TOKEN=your_discord_bot_token
 TELEGRAM_BOT_TOKEN=your_telegram_bot_token
-DISCORD_CHANNEL_ID=123456789012345678
-TELEGRAM_CHAT_ID=-1001234567890
+BRIDGE_PAIRS=[{"discord_channel_id":123456789012345678,"telegram_chat_id":-1001234567890}]
 
 # Опционально
 # BRIDGE_PAIRS=[{"discord_channel_id":123456789012345678,"telegram_chat_id":-1001234567890},{"discord_channel_id":223456789012345678,"telegram_chat_id":-1002234567890},{"discord_channel_id":323456789012345678,"telegram_chat_id":-1003234567890,"telegram_thread_id":42}]
@@ -59,8 +58,7 @@ TELEGRAM_CHAT_ID=-1001234567890
 # ADMIN_PORT=8080
 ```
 
-> Можно использовать либо пару `DISCORD_CHANNEL_ID` + `TELEGRAM_CHAT_ID`, либо массив `BRIDGE_PAIRS` (JSON).
-> При первом запуске пары из env инициализируют JSON-хранилище `BRIDGE_PAIRS_STORE_PATH`.
+`BRIDGE_PAIRS` — обязательная переменная окружения. Укажите в ней непустой JSON-массив пар маппинга.
 
 Примеры `BRIDGE_PAIRS`:
 
