@@ -10,6 +10,7 @@ import uvicorn
 from src.admin.app import AdminContext, create_admin_app
 from src.admin.store import BridgePairStore
 from src.bridge.dedup_store import CompositeDedupStore, InMemoryDedupStore, RedisDedupStore
+from src.bridge.forward_mapping_store import SQLiteForwardMappingStore
 from src.bridge.service import BridgeService
 from src.clients.discord_client import DiscordClient
 from src.clients.telegram_client import TelegramClient
@@ -44,6 +45,11 @@ async def run() -> None:
         except RuntimeError:
             logger.warning("Redis dedup store requested but redis dependency is missing")
 
+    forward_mapping_store = SQLiteForwardMappingStore(
+        db_path=settings.forward_mapping_sqlite_path,
+        max_items=settings.forward_mapping_max_items,
+    )
+
     bridge_pair_store = BridgePairStore(settings.bridge_pairs_store_path)
     stored_pairs = bridge_pair_store.initialize(settings.bridge_pairs)
 
@@ -51,6 +57,7 @@ async def run() -> None:
         bridge_pairs=tuple(pair.to_bridge_pair() for pair in stored_pairs),
         forwarding_rules=settings.forwarding_rules,
         dedup_store=dedup_store,
+        forward_mapping_store=forward_mapping_store,
     )
 
     discord_client = DiscordClient(

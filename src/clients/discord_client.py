@@ -35,10 +35,20 @@ class DiscordClient(discord.Client):
 
         reply_to_author = None
         reply_to_text = None
+        reply_to_message_id = str(message.reference.message_id) if message.reference and message.reference.message_id else None
+
         if message.reference and message.reference.resolved and isinstance(message.reference.resolved, discord.Message):
             ref = message.reference.resolved
             reply_to_author = ref.author.display_name
             reply_to_text = ref.content
+        elif message.reference and message.reference.message_id:
+            try:
+                fetched = await message.channel.fetch_message(message.reference.message_id)
+            except (discord.NotFound, discord.Forbidden, discord.HTTPException):
+                fetched = None
+            if fetched is not None:
+                reply_to_author = fetched.author.display_name
+                reply_to_text = fetched.content
 
         attachments = [
             MessageAttachment(filename=attachment.filename, url=attachment.url)
@@ -56,6 +66,7 @@ class DiscordClient(discord.Client):
             attachments=attachments,
             reply_to_author=reply_to_author,
             reply_to_text=reply_to_text,
+            reply_to_message_id=reply_to_message_id,
         )
 
     async def start_client(self) -> None:
@@ -65,7 +76,13 @@ class DiscordClient(discord.Client):
         if not self.is_closed():
             await self.close()
 
-    async def send_message(self, channel_id: int, text: str) -> None:
+    async def send_message(
+        self,
+        channel_id: int,
+        text: str,
+        *,
+        reference_message_id: str | None = None,
+    ) -> str:
         channel = self.get_channel(channel_id)
         if channel is None:
             channel = await self.fetch_channel(channel_id)
@@ -79,8 +96,17 @@ class DiscordClient(discord.Client):
                 return status_code in {429, 500, 502, 503, 504}, status_code
             return False, None
 
-        await retry_with_backoff(
+        reference = None
+        if reference_message_id:
+            reference = discord.MessageReference(
+                message_id=int(reference_message_id),
+                channel_id=channel_id,
+                fail_if_not_exists=False,
+            )
+
+        sent = await retry_with_backoff(
             "discord.send_message",
-            lambda: channel.send(text),
+            lambda: channel.send(text, reference=reference),
             is_retryable=_is_retryable,
         )
+        return str(sent.id)

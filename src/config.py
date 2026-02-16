@@ -29,6 +29,8 @@ class Settings:
     forwarding_rules: ForwardingRules
     dedup_ttl_seconds: int
     dedup_redis_url: str | None
+    forward_mapping_sqlite_path: str
+    forward_mapping_max_items: int
     heartbeat_interval_seconds: int
     bridge_pairs_store_path: str
     admin_token: str | None
@@ -41,14 +43,6 @@ def _require_env(name: str) -> str:
     if not value:
         raise ConfigError(f"Environment variable {name} is required")
     return value
-
-
-def _require_int(name: str) -> int:
-    raw = _require_env(name)
-    try:
-        return int(raw)
-    except ValueError as exc:
-        raise ConfigError(f"Environment variable {name} must be an integer") from exc
 
 
 def _parse_int_env(name: str, default: int) -> int:
@@ -169,13 +163,18 @@ def _parse_forwarding_rules() -> ForwardingRules:
 
 def load_settings() -> Settings:
     load_dotenv()
+    dedup_ttl_seconds = _parse_int_env("DEDUP_TTL_SECONDS", 300)
+    dedup_redis_url = os.getenv("DEDUP_REDIS_URL")
+
     return Settings(
         discord_bot_token=_require_env("DISCORD_BOT_TOKEN"),
         telegram_bot_token=_require_env("TELEGRAM_BOT_TOKEN"),
         bridge_pairs=_parse_bridge_pairs(),
         forwarding_rules=_parse_forwarding_rules(),
-        dedup_ttl_seconds=_parse_int_env("DEDUP_TTL_SECONDS", 300),
-        dedup_redis_url=os.getenv("DEDUP_REDIS_URL"),
+        dedup_ttl_seconds=dedup_ttl_seconds,
+        dedup_redis_url=dedup_redis_url,
+        forward_mapping_sqlite_path=os.getenv("FORWARD_MAPPING_SQLITE_PATH", "data/forward_mapping.sqlite3"),
+        forward_mapping_max_items=_parse_int_env("FORWARD_MAPPING_MAX_ITEMS", 1000),
         heartbeat_interval_seconds=_parse_int_env("HEARTBEAT_INTERVAL_SECONDS", 60),
         bridge_pairs_store_path=os.getenv("BRIDGE_PAIRS_STORE_PATH", "data/bridge_pairs.json"),
         admin_token=os.getenv("ADMIN_TOKEN"),
