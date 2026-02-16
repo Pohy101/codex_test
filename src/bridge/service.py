@@ -5,7 +5,7 @@ from dataclasses import dataclass, field
 
 from src.bridge.dedup_store import BaseDedupStore
 from src.bridge.forward_mapping_store import BaseForwardMappingStore
-from src.bridge.message_router import IncomingMessage, MessageAttachment, MessageRouter
+from src.bridge.message_router import IncomingMessage, MediaItem, MessageRouter
 from src.bridge.rules import ForwardingRules
 from src.config import BridgePair
 from src.logging_setup import correlation_context, generate_correlation_id
@@ -61,7 +61,7 @@ class BridgeService:
         channel_id: int,
         thread_id: int | None = None,
         message_id: str | None = None,
-        attachments: list[MessageAttachment] | None = None,
+        media_items: list[MediaItem] | None = None,
         reply_to_author: str | None = None,
         reply_to_text: str | None = None,
         reply_to_message_id: str | None = None,
@@ -76,7 +76,7 @@ class BridgeService:
             content=content,
             message_id=message_id,
             reply_to_message_id=reply_to_message_id,
-            attachments=attachments or [],
+            media_items=media_items or [],
             reply_to_author=reply_to_author,
             reply_to_text=reply_to_text,
         )
@@ -100,7 +100,7 @@ class BridgeService:
         chat_id: int,
         thread_id: int | None = None,
         message_id: str | None = None,
-        attachments: list[MessageAttachment] | None = None,
+        media_items: list[MediaItem] | None = None,
         reply_to_author: str | None = None,
         reply_to_text: str | None = None,
         reply_to_message_id: str | None = None,
@@ -115,7 +115,7 @@ class BridgeService:
             content=content,
             message_id=message_id,
             reply_to_message_id=reply_to_message_id,
-            attachments=attachments or [],
+            media_items=media_items or [],
             reply_to_author=reply_to_author,
             reply_to_text=reply_to_text,
         )

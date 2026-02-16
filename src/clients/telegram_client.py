@@ -1,11 +1,13 @@
 from __future__ import annotations
 
+from io import BytesIO
+
 from aiogram import Bot, Dispatcher, Router
 from aiogram.exceptions import TelegramNetworkError, TelegramRetryAfter, TelegramServerError
 from aiogram.filters import Command
-from aiogram.types import Message, ReplyParameters
+from aiogram.types import BufferedInputFile, Message, ReplyParameters
 
-from src.bridge.message_router import MessageAttachment
+from src.bridge.message_router import MediaItem
 from src.bridge.service import BridgeService
 from src.retry import retry_with_backoff
 
@@ -30,32 +32,90 @@ class TelegramClient:
                 return
 
             content = (message.text or message.caption or "").strip()
-            attachments: list[MessageAttachment] = []
+            media_items: list[MediaItem] = []
 
             if message.photo:
                 largest_photo = message.photo[-1]
-                attachments.append(
-                    MessageAttachment(
+                media_items.append(
+                    MediaItem(
+                        kind="photo",
+                        platform_file_id=largest_photo.file_id,
                         filename=f"photo_{largest_photo.file_unique_id}.jpg",
-                        url=None,
-                    )
-                )
-            if message.document:
-                attachments.append(
-                    MessageAttachment(
-                        filename=message.document.file_name,
-                        url=None,
+                        file_size=largest_photo.file_size,
+                        caption=message.caption,
                     )
                 )
             if message.video:
-                attachments.append(
-                    MessageAttachment(
+                media_items.append(
+                    MediaItem(
+                        kind="video",
+                        platform_file_id=message.video.file_id,
                         filename=message.video.file_name or f"video_{message.video.file_unique_id}.mp4",
-                        url=None,
+                        mime_type=message.video.mime_type,
+                        duration=message.video.duration,
+                        file_size=message.video.file_size,
+                        caption=message.caption,
+                    )
+                )
+            if message.audio:
+                media_items.append(
+                    MediaItem(
+                        kind="audio",
+                        platform_file_id=message.audio.file_id,
+                        filename=message.audio.file_name,
+                        mime_type=message.audio.mime_type,
+                        duration=message.audio.duration,
+                        file_size=message.audio.file_size,
+                        caption=message.caption,
+                    )
+                )
+            if message.voice:
+                media_items.append(
+                    MediaItem(
+                        kind="voice",
+                        platform_file_id=message.voice.file_id,
+                        filename=f"voice_{message.voice.file_unique_id}.ogg",
+                        mime_type=message.voice.mime_type,
+                        duration=message.voice.duration,
+                        file_size=message.voice.file_size,
+                        caption=message.caption,
+                    )
+                )
+            if message.document:
+                media_items.append(
+                    MediaItem(
+                        kind="document",
+                        platform_file_id=message.document.file_id,
+                        filename=message.document.file_name,
+                        mime_type=message.document.mime_type,
+                        file_size=message.document.file_size,
+                        caption=message.caption,
+                    )
+                )
+            if message.sticker:
+                media_items.append(
+                    MediaItem(
+                        kind="sticker",
+                        platform_file_id=message.sticker.file_id,
+                        filename=f"sticker_{message.sticker.file_unique_id}.webp",
+                        mime_type="image/webp",
+                        file_size=message.sticker.file_size,
+                    )
+                )
+            if message.animation:
+                media_items.append(
+                    MediaItem(
+                        kind="animation",
+                        platform_file_id=message.animation.file_id,
+                        filename=message.animation.file_name,
+                        mime_type=message.animation.mime_type,
+                        duration=message.animation.duration,
+                        file_size=message.animation.file_size,
+                        caption=message.caption,
                     )
                 )
 
-            if not content and not attachments:
+            if not content and not media_items:
                 return
 
             reply_to_author = None
@@ -79,7 +139,7 @@ class TelegramClient:
                 chat_id=message.chat.id,
                 thread_id=message.message_thread_id,
                 message_id=str(message.message_id),
-                attachments=attachments,
+                media_items=media_items,
                 reply_to_author=reply_to_author,
                 reply_to_text=reply_to_text,
                 reply_to_message_id=reply_to_message_id,
@@ -99,18 +159,7 @@ class TelegramClient:
         message_thread_id: int | None = None,
         reply_to_message_id: str | None = None,
     ) -> str:
-        def _is_retryable(exc: Exception) -> tuple[bool, int | None]:
-            if isinstance(exc, TelegramRetryAfter):
-                return True, 429
-            if isinstance(exc, TelegramServerError):
-                return True, 500
-            if isinstance(exc, TelegramNetworkError):
-                return True, 503
-            return False, None
-
-        reply_parameters = None
-        if reply_to_message_id:
-            reply_parameters = ReplyParameters(message_id=int(reply_to_message_id))
+        reply_parameters = self._reply_parameters(reply_to_message_id)
 
         sent = await retry_with_backoff(
             "telegram.send_message",
@@ -120,6 +169,170 @@ class TelegramClient:
                 message_thread_id=message_thread_id,
                 reply_parameters=reply_parameters,
             ),
-            is_retryable=_is_retryable,
+            is_retryable=self._is_retryable,
         )
         return str(sent.message_id)
+
+    async def send_photo(
+        self,
+        chat_id: int,
+        data: bytes,
+        *,
+        filename: str | None = None,
+        caption: str | None = None,
+        mime_type: str | None = None,
+        duration: int | None = None,
+        message_thread_id: int | None = None,
+        reply_to_message_id: str | None = None,
+    ) -> str:
+        del mime_type, duration
+        input_file = self._input_file(data, filename or "photo.jpg")
+        reply_parameters = self._reply_parameters(reply_to_message_id)
+        sent = await retry_with_backoff(
+            "telegram.send_photo",
+            lambda: self._bot.send_photo(
+                chat_id=chat_id,
+                photo=input_file,
+                caption=caption,
+                message_thread_id=message_thread_id,
+                reply_parameters=reply_parameters,
+            ),
+            is_retryable=self._is_retryable,
+        )
+        return str(sent.message_id)
+
+    async def send_video(self, chat_id: int, data: bytes, **kwargs: object) -> str:
+        input_file = self._input_file(data, str(kwargs.get("filename") or "video.mp4"))
+        reply_parameters = self._reply_parameters(kwargs.get("reply_to_message_id"))
+        sent = await retry_with_backoff(
+            "telegram.send_video",
+            lambda: self._bot.send_video(
+                chat_id=chat_id,
+                video=input_file,
+                caption=kwargs.get("caption"),
+                duration=kwargs.get("duration"),
+                message_thread_id=kwargs.get("message_thread_id"),
+                reply_parameters=reply_parameters,
+            ),
+            is_retryable=self._is_retryable,
+        )
+        return str(sent.message_id)
+
+    async def send_audio(self, chat_id: int, data: bytes, **kwargs: object) -> str:
+        input_file = self._input_file(data, str(kwargs.get("filename") or "audio.mp3"))
+        reply_parameters = self._reply_parameters(kwargs.get("reply_to_message_id"))
+        sent = await retry_with_backoff(
+            "telegram.send_audio",
+            lambda: self._bot.send_audio(
+                chat_id=chat_id,
+                audio=input_file,
+                caption=kwargs.get("caption"),
+                duration=kwargs.get("duration"),
+                message_thread_id=kwargs.get("message_thread_id"),
+                reply_parameters=reply_parameters,
+            ),
+            is_retryable=self._is_retryable,
+        )
+        return str(sent.message_id)
+
+    async def send_voice(self, chat_id: int, data: bytes, **kwargs: object) -> str:
+        input_file = self._input_file(data, str(kwargs.get("filename") or "voice.ogg"))
+        reply_parameters = self._reply_parameters(kwargs.get("reply_to_message_id"))
+        sent = await retry_with_backoff(
+            "telegram.send_voice",
+            lambda: self._bot.send_voice(
+                chat_id=chat_id,
+                voice=input_file,
+                caption=kwargs.get("caption"),
+                duration=kwargs.get("duration"),
+                message_thread_id=kwargs.get("message_thread_id"),
+                reply_parameters=reply_parameters,
+            ),
+            is_retryable=self._is_retryable,
+        )
+        return str(sent.message_id)
+
+    async def send_document(self, chat_id: int, data: bytes, **kwargs: object) -> str:
+        input_file = self._input_file(data, str(kwargs.get("filename") or "document.bin"))
+        reply_parameters = self._reply_parameters(kwargs.get("reply_to_message_id"))
+        sent = await retry_with_backoff(
+            "telegram.send_document",
+            lambda: self._bot.send_document(
+                chat_id=chat_id,
+                document=input_file,
+                caption=kwargs.get("caption"),
+                message_thread_id=kwargs.get("message_thread_id"),
+                reply_parameters=reply_parameters,
+            ),
+            is_retryable=self._is_retryable,
+        )
+        return str(sent.message_id)
+
+    async def send_sticker(self, chat_id: int, data: bytes, **kwargs: object) -> str:
+        input_file = self._input_file(data, str(kwargs.get("filename") or "sticker.webp"))
+        reply_parameters = self._reply_parameters(kwargs.get("reply_to_message_id"))
+        sent = await retry_with_backoff(
+            "telegram.send_sticker",
+            lambda: self._bot.send_sticker(
+                chat_id=chat_id,
+                sticker=input_file,
+                message_thread_id=kwargs.get("message_thread_id"),
+                reply_parameters=reply_parameters,
+            ),
+            is_retryable=self._is_retryable,
+        )
+        return str(sent.message_id)
+
+    async def send_animation(self, chat_id: int, data: bytes, **kwargs: object) -> str:
+        input_file = self._input_file(data, str(kwargs.get("filename") or "animation.gif"))
+        reply_parameters = self._reply_parameters(kwargs.get("reply_to_message_id"))
+        sent = await retry_with_backoff(
+            "telegram.send_animation",
+            lambda: self._bot.send_animation(
+                chat_id=chat_id,
+                animation=input_file,
+                caption=kwargs.get("caption"),
+                duration=kwargs.get("duration"),
+                message_thread_id=kwargs.get("message_thread_id"),
+                reply_parameters=reply_parameters,
+            ),
+            is_retryable=self._is_retryable,
+        )
+        return str(sent.message_id)
+
+    async def download_file_by_id(self, file_id: str) -> bytes | None:
+        file = await retry_with_backoff(
+            "telegram.get_file",
+            lambda: self._bot.get_file(file_id),
+            is_retryable=self._is_retryable,
+        )
+        if not file.file_path:
+            return None
+
+        buffer = BytesIO()
+        await retry_with_backoff(
+            "telegram.download_file",
+            lambda: self._bot.download_file(file.file_path, destination=buffer),
+            is_retryable=self._is_retryable,
+        )
+        return buffer.getvalue()
+
+    @staticmethod
+    def _input_file(data: bytes, filename: str) -> BufferedInputFile:
+        return BufferedInputFile(data, filename=filename)
+
+    @staticmethod
+    def _reply_parameters(reply_to_message_id: object) -> ReplyParameters | None:
+        if reply_to_message_id is None:
+            return None
+        return ReplyParameters(message_id=int(reply_to_message_id))
+
+    @staticmethod
+    def _is_retryable(exc: Exception) -> tuple[bool, int | None]:
+        if isinstance(exc, TelegramRetryAfter):
+            return True, 429
+        if isinstance(exc, TelegramServerError):
+            return True, 500
+        if isinstance(exc, TelegramNetworkError):
+            return True, 503
+        return False, None
