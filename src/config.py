@@ -88,15 +88,11 @@ def _parse_json_env(name: str, fallback: object) -> object:
 
 
 def _parse_bridge_pairs() -> tuple[BridgePair, ...]:
-    raw_pairs = _parse_json_env("BRIDGE_PAIRS", None)
-    if raw_pairs is None:
-        return (
-            BridgePair(
-                discord_channel_id=_require_int("DISCORD_CHANNEL_ID"),
-                telegram_chat_id=_require_int("TELEGRAM_CHAT_ID"),
-            ),
-        )
+    raw_value = os.getenv("BRIDGE_PAIRS")
+    if raw_value is None or not raw_value.strip():
+        raise ConfigError("Environment variable BRIDGE_PAIRS is required and must be a non-empty JSON array")
 
+    raw_pairs = _parse_json_env("BRIDGE_PAIRS", None)
     if not isinstance(raw_pairs, list) or not raw_pairs:
         raise ConfigError("Environment variable BRIDGE_PAIRS must be a non-empty JSON array")
 
